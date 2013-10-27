@@ -1,25 +1,26 @@
 require 'rubygems'
 require 'open4'
-require 'shell'
+require 'net/http'
+require 'fileutils'
 
 class VbController
 
 	def initialize(vm_folder)
 		@vm_folder = vm_folder
-	end
-	
-	def import(ovf_path, name)
-		# this should be an ovf or ova which is configured for the host. Set the netwokring to bridged and make sure the
-		# box starts just fine
-		run_and_wait("VBoxManage import #{ovf_path} --vsys 0 --vmname #{name}")
+		@local_vm_folder = File.expand_path('~/.vbcontroller')
+		
+		FileUtils.mkdir_p(@local_vm_folder)
 	end
 	
 	def start(name)
-		# configure the box. 
-		# NOTE: this only works for Macs for now. need to find a way of getting the best NIC name
-#		run_and_wait("VBoxManage modifyvm #{name} --nic1 bridged --bridgeadapter1 en1")
+		# import it from repo if not available
+		unless is_available?(name)
+			download(name)
+		end
 		
-		# start the box
+		import(File.join(@local_vm_folder, name, "#{name}.ova"), name)
+		
+			# start the box
 		run("VBoxManage startvm #{name}")
 		
 		# get and return the IP
@@ -41,10 +42,6 @@ class VbController
 	
 	private
 
-	def get_nics
-		local_run("ifconfig | awk -F: '/^en/ { print $1 }'")
-	end
-	
 	def local_run(cmd, options = {})
 		timeout = options[:timeout]
 		should_wait = options[:should_wait] || true
@@ -65,9 +62,6 @@ class VbController
 					end
 				end
 			rescue Timeout::Error
-				# kill pid if its still exists
-				# we should now do this externally
-				#Process.kill(what is the quit id?, pid) rescue nil
 				{ :ok => false, :error => "Command was timed-out after #{timeout} seconds", :timeout => true }
 			end
 		else
@@ -75,8 +69,31 @@ class VbController
 		end
 	end
 	
+	def download(name)
+		# make the folder
+		FileUtils.mkdir_p(File.join(@local_vm_folder, name))
+		
+		Net::HTTP.start("http://vboxes.cloud66.com") do |http|
+			resp = http.get("#{name}.ova")
+			open(File.join(@local_vm_folder, name, "#{name}.ova"), "w") do |file|
+				file.write(resp.body)
+			end
+		end
+	end
+	
+	def import(ova_path, name)
+		# this should be an ova which is configured for the host. Set the netwokring to bridged and make sure the
+		# box starts just fine
+		run_and_wait("VBoxManage import #{ova_path} --vsys 0 --vmname #{name}")
+	end
+
 	def run_and_wait(command)
 		local_run(command, :should_wait => true)
+	end
+	
+	def is_available?(name)
+		# do we have it locally?
+		File.exists?(File.join(@local_vm_folder, name, "#{name}.ova"))
 	end
 	
 	def run(command)
@@ -85,8 +102,3 @@ class VbController
 	end
 	
 end
-
-c = VbController.new("/Users/khashsajadi/VirtualBox VMs")
-#c.import('/Users/khashsajadi/Desktop/boom.ova', 'boom')
-#c.start('boom')
-#c.shutdown('boom')

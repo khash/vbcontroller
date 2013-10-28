@@ -3,8 +3,12 @@ require 'open4'
 require 'net/http'
 require 'fileutils'
 
-class VbController
-
+# How to use VBoxManager
+# You need Oracle VirtualBox installed on your machine
+# vm_folder is the folder VirtualBox runs VMs from. It is usually ~/Virtual Machines
+# You'd also need an OVA machine file. This should be either downloaded from vboxes.cloud66.com or
+# copied to ~/.vbcontorller/<box_name>/<box_name>.ova
+class VBoxManager
 	def initialize(vm_folder)
 		@vm_folder = vm_folder
 		@local_vm_folder = File.expand_path('~/.vbcontroller')
@@ -12,22 +16,25 @@ class VbController
 		FileUtils.mkdir_p(@local_vm_folder)
 	end
 	
-	def start(name)
+	def start(source, name)
 		# import it from repo if not available
-		unless is_available?(name)
-			download(name)
+		unless is_available?(source)
+			download(source)
 		end
 		
-		import(File.join(@local_vm_folder, name, "#{name}.ova"), name)
+		import(File.join(@local_vm_folder, source, "#{source}.ova"), name)
 		
 			# start the box
 		run("VBoxManage startvm #{name}")
+	end
+	
+	def get_ip(name)
+		begin
+			ip = run_and_wait("VBoxManage guestproperty get #{name} '/VirtualBox/GuestInfo/Net/0/V4/IP' | awk '{ print $2 }'")
+			sleep(1)
+		end while ip[:data] == 'value'
 		
-		# get and return the IP
-		ip = run_and_wait("VBoxManage guestproperty get #{name} '/VirtualBox/GuestInfo/Net/0/V4/IP' | awk '{ print $2 }'")
-		puts ip
-		
-		return ip
+		return ip[:data]
 	end
 	
 	def shutdown(name)
